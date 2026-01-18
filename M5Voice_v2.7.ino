@@ -27,7 +27,14 @@
 // 🔐 CONFIGURATION - PASTE YOUR CREDENTIALS HERE
 // ============================================================================
 
-const char* OPENAI_API_KEY = "YOUR_API_KEY_HERE";
+
+// ===================== AZURE OPENAI CONFIGURATION =====================
+
+const char* AZURE_OPENAI_KEY = "YOUR_AZURE_OPENAI_KEY_HERE";
+const char* AZURE_OPENAI_ENDPOINT = "https://YOUR_RESOURCE_NAME.openai.azure.com"; // No trailing slash
+const char* AZURE_OPENAI_DEPLOYMENT = "YOUR_CHAT_DEPLOYMENT_NAME"; // e.g. "gpt-4o-mini"
+const char* AZURE_OPENAI_WHISPER_DEPLOYMENT = "YOUR_WHISPER_DEPLOYMENT_NAME"; // e.g. "whisper-1"
+const char* AZURE_OPENAI_API_VERSION = "2024-02-15-preview"; // Or latest supported
 
 // Optional: Pre-fill WiFi (or leave blank to use web setup at 192.168.4.1)
 const char* WIFI_SSID = "";
@@ -491,15 +498,21 @@ void createWavHeader(uint8_t* header, int dataSize) {
 // OPENAI API FUNCTIONS
 // ============================================================================
 
+
 String transcribeAudio() {
-  Serial.println("\n========== TRANSCRIBING ==========");
-  
+  Serial.println("\n========== TRANSCRIBING (Azure OpenAI) ==========");
   WiFiClientSecure client;
   client.setInsecure();
   client.setTimeout(60);
 
-  Serial.println("Connecting to api.openai.com...");
-  if (!client.connect("api.openai.com", 443)) {
+  String host = String(AZURE_OPENAI_ENDPOINT);
+  host.replace("https://", "");
+  int slash = host.indexOf('/');
+  if (slash > 0) host = host.substring(0, slash); // Remove any trailing path
+
+  String url = String(AZURE_OPENAI_ENDPOINT) + "/openai/deployments/" + AZURE_OPENAI_WHISPER_DEPLOYMENT + "/audio/transcriptions?api-version=" + AZURE_OPENAI_API_VERSION;
+  Serial.println("Connecting to " + host + "...");
+  if (!client.connect(host.c_str(), 443)) {
     Serial.println("ERROR: Connection failed!");
     return "Connection failed";
   }
@@ -510,31 +523,26 @@ String transcribeAudio() {
   createWavHeader(wavHeader, audioDataSize);
 
   String boundary = "----ESP32Boundary";
-  
   String bodyStart = "--" + boundary + "\r\n";
   bodyStart += "Content-Disposition: form-data; name=\"file\"; filename=\"audio.wav\"\r\n";
   bodyStart += "Content-Type: audio/wav\r\n\r\n";
-  
   String bodyEnd = "\r\n--" + boundary + "\r\n";
-  bodyEnd += "Content-Disposition: form-data; name=\"model\"\r\n\r\n";
-  bodyEnd += "whisper-1\r\n";
+  bodyEnd += "Content-Disposition: form-data; name=\"response_format\"\r\n\r\ntext\r\n";
   bodyEnd += "--" + boundary + "--\r\n";
 
   int contentLength = bodyStart.length() + 44 + audioDataSize + bodyEnd.length();
   Serial.printf("Content length: %d bytes (audio: %d bytes)\n", contentLength, audioDataSize);
 
-  Serial.println("Sending request headers...");
-  client.print("POST /v1/audio/transcriptions HTTP/1.1\r\n");
-  client.print("Host: api.openai.com\r\n");
-  client.print("Authorization: Bearer " + String(OPENAI_API_KEY) + "\r\n");
+  // Send HTTP request
+  client.print("POST " + url.substring(url.indexOf('/', 8)) + " HTTP/1.1\r\n");
+  client.print("Host: " + host + "\r\n");
+  client.print("api-key: " + String(AZURE_OPENAI_KEY) + "\r\n");
   client.print("Content-Type: multipart/form-data; boundary=" + boundary + "\r\n");
   client.print("Content-Length: " + String(contentLength) + "\r\n");
   client.print("Connection: close\r\n\r\n");
 
-  Serial.println("Sending audio data...");
   client.print(bodyStart);
   client.write(wavHeader, 44);
-  
   int chunkSize = 4096;
   uint8_t* ptr = (uint8_t*)audioBuffer;
   int remaining = audioDataSize;
@@ -550,7 +558,6 @@ String transcribeAudio() {
     }
     delay(1);
   }
-  
   client.print(bodyEnd);
   Serial.println("Request sent, waiting for response...");
 
@@ -574,7 +581,7 @@ String transcribeAudio() {
   String response = client.readString();
   client.stop();
 
-  Serial.println("Whisper response body:");
+  Serial.println("Azure Whisper response body:");
   Serial.println(response);
 
   int textIdx = response.indexOf("\"text\"");
@@ -582,14 +589,12 @@ String transcribeAudio() {
     Serial.println("ERROR: No 'text' field in response!");
     return "No transcription";
   }
-  
   int start = response.indexOf('"', textIdx + 6);
   if (start < 0) {
     Serial.println("ERROR: Parse error!");
     return "Parse error";
   }
   start++;
-  
   String result;
   bool escaped = false;
   for (unsigned int i = start; i < response.length(); i++) {
@@ -605,27 +610,27 @@ String transcribeAudio() {
       result += c;
     }
   }
-  
   Serial.println("Transcription: " + result);
   Serial.println("==================================\n");
-  
   return result;
 }
 
 // ✨ ENHANCED: Now supports conversation history!
+
 String askGPT(const String &question) {
-  Serial.println("\n========== ASKING GPT ==========");
+  Serial.println("\n========== ASKING GPT (Azure OpenAI) ==========");
   Serial.println("Question: " + question);
   Serial.println("Conversation mode: " + String(conversationMode ? "YES" : "NO"));
-  
+
   HTTPClient http;
   WiFiClientSecure client;
   client.setInsecure();
 
-  Serial.println("Connecting to OpenAI...");
-  http.begin(client, "https://api.openai.com/v1/chat/completions");
+  String url = String(AZURE_OPENAI_ENDPOINT) + "/openai/deployments/" + AZURE_OPENAI_DEPLOYMENT + "/chat/completions?api-version=" + AZURE_OPENAI_API_VERSION;
+  Serial.println("Connecting to Azure OpenAI...");
+  http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", String("Bearer ") + OPENAI_API_KEY);
+  http.addHeader("api-key", String(AZURE_OPENAI_KEY));
   http.setTimeout(90000);
 
   // Escape special characters in question
@@ -636,34 +641,29 @@ String askGPT(const String &question) {
 
   // Build messages array with history
   String messages;
-  
   if (conversationMode && historyCount > 0) {
-    // Include conversation history
     messages = getHistoryJSON() + ",";
     messages += "{\"role\":\"user\",\"content\":\"" + escaped + "\"}";
   } else {
-    // Fresh question - no history
     messages = "{\"role\":\"user\",\"content\":\"" + escaped + "\"}";
   }
 
   // ✨ KID-FRIENDLY SYSTEM PROMPT
-    String systemPrompt = String systemPrompt = "You are a calm, neutral explainer. Answer clearly and directly. Do not praise the question. Do not use exclamations or emojis. Avoid hype or encouragement language. Use simple but precise wording. Keep answers short by default, but prioritise clarity over brevity.";
-
+  String systemPrompt = "You are a calm, neutral explainer. Answer clearly and directly. Do not praise the question. Do not use exclamations or emojis. Avoid hype or encouragement language. Use simple but precise wording. Keep answers short by default, but prioritise clarity over brevity.";
 
   // Build JSON request with system prompt
   String body =
-  "{"
-    "\"model\":\"gpt-4o-mini\","
-    "\"messages\":["
-      "{\"role\":\"system\",\"content\":\"" + systemPrompt + "\"},"
-      + messages +
-    "],"
-    "\"max_tokens\":150"
-  "}";
+    "{"
+      "\"messages\":["
+        "{\"role\":\"system\",\"content\":\"" + systemPrompt + "\"},"
+        + messages +
+      "],"
+      "\"max_tokens\":150"
+    "}";
 
   Serial.println("Sending request...");
   Serial.println("Body: " + body);
-  
+
   int httpCode = http.POST(body);
   Serial.printf("HTTP response code: %d\n", httpCode);
 
@@ -677,7 +677,7 @@ String askGPT(const String &question) {
   String resp = http.getString();
   http.end();
 
-  Serial.println("GPT response:");
+  Serial.println("Azure GPT response:");
   Serial.println(resp);
 
   int contentIdx = resp.indexOf("\"content\"");
@@ -714,7 +714,7 @@ String askGPT(const String &question) {
   // ✨ Save to conversation history
   addToHistory("user", escaped);
   addToHistory("assistant", result);
-  conversationMode = true;  // Enable conversation mode
+  conversationMode = true;
 
   Serial.println("Extracted answer: " + result);
   Serial.println("=================================\n");
