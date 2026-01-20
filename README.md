@@ -109,6 +109,24 @@ Full credit to **@organised** for the foundation.
 
 ---
 
+## Azure OpenAI & Deployment (optional)
+
+- **Requires Azure OpenAI access:** This project can use Azure OpenAI instead of the public OpenAI API. Your Azure subscription and target region must support Azure OpenAI and have the necessary quotas/approvals.
+- **One-click resource creation:** Use the included Bicep template to create an Azure OpenAI account, model deployments (`gpt-5.2`, `whisper-1`), and a Storage Account with a Table for logging.
+- **File:** [azure-deploy.bicep](azure-deploy.bicep) — the template creates resources and outputs values you'll need (OpenAI endpoint, deployment names, storage/table names, and a Table SAS URL for logging).
+- **Logging:** The deployment creates a Table storage (`m5voiceLogs` by default). The template also generates an account-level SAS token; use the resulting `tableSasUrl` output to send logs to the table. Adjust SAS expiry and permissions in the Bicep file for your security posture.
+
+Quick validation & deploy commands (replace `<RG>`):
+```bash
+az bicep build --file azure-deploy.bicep
+az deployment group validate --resource-group <RG> --template-file azure-deploy.bicep
+az deployment group create --resource-group <RG> --template-file azure-deploy.bicep --parameters prefix=m5voice
+```
+
+If you want, run the commands above to provision resources and then paste the deployment outputs here — I can help connect the device or backend to the Azure endpoint and table.
+
+---
+
 ## Quick Start
 
 ### 1. Install Dependencies
@@ -137,8 +155,16 @@ Open `M5Voice_v2.7.ino` and edit the configuration section:
 // CONFIGURATION - PASTE YOUR CREDENTIALS HERE
 // ============================================================================
 
-const char* OPENAI_API_KEY = "YOUR_OPENAI_KEY_HERE";
+const char* AZURE_OPENAI_KEY = "XX";
+const char* AZURE_OPENAI_ENDPOINT = "https://XXX.openai.azure.com"; // No trailing slash
+const char* AZURE_OPENAI_DEPLOYMENT = "gpt-5.2"; // e.g. "gpt-4o-mini"
+const char* AZURE_OPENAI_WHISPER_DEPLOYMENT = "whisper-1"; // e.g. "whisper-1"
 
 // Optional: leave blank to use WiFi setup portal
 const char* WIFI_SSID = "YourWiFiName";
 const char* WIFI_PASSWORD = "YourWiFiPassword";
+
+const char* AZURE_TABLE_URL = "";   // e.g. https://mystorage.table.core.windows.net
+const char* AZURE_TABLE_SAS = "";   // e.g. sv=...&sig=... (leave empty to disable)
+const char* AZURE_TABLE_NAME = "VoiceLogs"; // Table name to insert into
+const char* DEVICE_ID = "M5Voice-01";      // Identifier used as PartitionKey
