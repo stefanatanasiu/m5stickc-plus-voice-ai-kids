@@ -8,7 +8,7 @@ param openAiSkuName string = 'S0'
 param storageSku string = 'Standard_LRS'
 param tableName string = 'm5voiceLogs'
 param sasExpiry string = '2030-01-01T00:00:00Z' // ISO8601 expiry for generated SAS
-param sasStart string = utcNow() // Use parameter default for utcNow()
+param sasStart string = utcNow('yyyy-MM-ddTHH:mm:ssZ') // ISO8601 format for SAS start
 
 // Azure OpenAI account
 resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
