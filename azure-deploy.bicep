@@ -8,9 +8,10 @@ param openAiSkuName string = 'S0'
 param storageSku string = 'Standard_LRS'
 param tableName string = 'm5voiceLogs'
 param sasExpiry string = '2030-01-01T00:00:00Z' // ISO8601 expiry for generated SAS
+param sasStart string = utcNow() // Use parameter default for utcNow()
 
 // Azure OpenAI account
-resource openAi 'Microsoft.CognitiveServices/accounts@2022-12-01' = {
+resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   name: '${prefix}-openai'
   location: location
   kind: 'OpenAI'
@@ -23,32 +24,42 @@ resource openAi 'Microsoft.CognitiveServices/accounts@2022-12-01' = {
 }
 
 // Deploy GPT-5.2
-resource gptDeployment 'Microsoft.CognitiveServices/accounts/deployments@2022-12-01' = {
-  name: '${openAi.name}/gpt-5-2-deployment'
+resource gptDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: openAi
+  name: 'gpt-5-2-deployment'
   properties: {
-    model: 'gpt-5.2'
-    scaleSettings: {
-      capacity: 1
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-4o'
+      version: '2024-11-20'
     }
   }
-  dependsOn: [openAi]
+  sku: {
+    name: 'Standard'
+    capacity: 1
+  }
 }
 
 // Deploy Whisper-1 (speech-to-text)
-resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@2022-12-01' = {
-  name: '${openAi.name}/whisper-1-deployment'
+resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
+  parent: openAi
+  name: 'whisper-1-deployment'
   properties: {
-    model: 'whisper-1'
-    scaleSettings: {
-      capacity: 1
+    model: {
+      format: 'OpenAI'
+      name: 'whisper'
+      version: '001'
     }
   }
-  dependsOn: [openAi]
+  sku: {
+    name: 'Standard'
+    capacity: 1
+  }
 }
 
 // Storage Account for logging
 var storageAccountName = toLower(substring('${prefix}sa${uniqueString(resourceGroup().id)}', 0, 24))
-resource storage 'Microsoft.Storage/storageAccounts@2021-09-01' = {
+resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
   location: location
   sku: {
@@ -61,25 +72,23 @@ resource storage 'Microsoft.Storage/storageAccounts@2021-09-01' = {
 }
 
 // Table service and table resource
-resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2021-09-01' = {
+resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
   parent: storage
   name: 'default'
 }
 
-resource table 'Microsoft.Storage/storageAccounts/tableServices/tables@2021-09-01' = {
+resource table 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
   parent: tableService
   name: tableName
-  properties: {}
-  dependsOn: [storage]
 }
 
 // Generate an account SAS (account-level) for Table service. You may adjust permissions and expiry.
-var accountSas = listAccountSas(storage.id, '2021-04-01', {
+var accountSas = storage.listAccountSas('2023-05-01', {
   signedServices: 't'
   signedResourceTypes: 'sco'
   signedPermission: 'raud'
   signedProtocol: 'https'
-  signedStart: utcNow()
+  signedStart: sasStart
   signedExpiry: sasExpiry
 })
 
@@ -89,7 +98,7 @@ output gptDeploymentName string = gptDeployment.name
 output whisperDeploymentName string = whisperDeployment.name
 output storageAccountName string = storage.name
 output tableNameOutput string = table.name
-output tableSasUrl string = 'https://${storage.name}.table.core.windows.net/${table.name}?${accountSas.accountSasToken}'
+output tableSasUrl string = 'https://${storage.name}.table.${environment().suffixes.storage}/${table.name}?${accountSas.accountSasToken}'
 
 // Notes (not enforced):
 // - Ensure the subscription/region supports Azure OpenAI and you have access to create it.
