@@ -58,7 +58,7 @@ resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@202
 }
 
 // Storage Account for logging
-var storageAccountName = toLower(substring('${prefix}sa${uniqueString(resourceGroup().id)}', 0, 24))
+var storageAccountName = toLower(take('${prefix}sa${uniqueString(resourceGroup().id)}', 24))
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
   location: location
