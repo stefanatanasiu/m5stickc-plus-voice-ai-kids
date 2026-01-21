@@ -40,7 +40,7 @@ resource gptDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10
   }
 }
 
-// Deploy Whisper-1 (speech-to-text)
+// Deploy Whisper-1 (speech-to-text) - depends on gptDeployment to avoid conflict
 resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: openAi
   name: 'whisper-1-deployment'
@@ -55,6 +55,7 @@ resource whisperDeployment 'Microsoft.CognitiveServices/accounts/deployments@202
     name: 'Standard'
     capacity: 1
   }
+  dependsOn: [gptDeployment]
 }
 
 // Storage Account for logging
